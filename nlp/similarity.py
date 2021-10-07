@@ -62,7 +62,7 @@ class WebSimilarity:
             return 0.0
 
         if (amount := len(lengths)) != 3:
-            logger.warning("Incorrect amount of results returned, %s should have been 3". amount)
+            logger.warning("Incorrect amount of results returned, %s should have been 3", amount)
             return 0.0
 
         try:
