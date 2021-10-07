@@ -3,7 +3,7 @@ import os
 import requests
 import json
 
-from typing import Optional, Iterator, Tuple, Any, Dict
+from typing import Optional, Iterator, Tuple, Any, Dict, List
 
 
 logger = logging.getLogger(__name__)
@@ -27,10 +27,10 @@ class WebSimilarity:
             }
         )
 
-    def _get_search_pages(self, word1: str, word2: str) -> Optional[int]:
+    def _get_search_pages(self, word1: str, word2: str) -> List[int]:
         if not GOOGLE_API_KEY:
             logger.critical("Could not get page count, missing key")
-            return None
+            return []
 
         request_url_base = f"https://www.googleapis.com/customsearch/v1?key={GOOGLE_API_KEY}&cx={CX_ID}:omuauf_lfve&q"
 
@@ -40,7 +40,7 @@ class WebSimilarity:
             response = self.session.get(request_url)
             if response.status_code != 200:
                 logger.critical("Return code %s from google api, exiting", response.status_code)
-                return None
+                return []
 
             try:
                 result = response.json()
@@ -53,5 +53,20 @@ class WebSimilarity:
             # page results not yet computed as I am not sure what they contant
             results.append(result)
 
-    def web_similarity(self, word1: str, word: str):
-        pass
+        return results
+
+    def web_similarity(self, word1: str, word2: str):
+        lengths = self._get_search_pages(word1, word2)
+        if not lengths:
+            logger.warning("No results with words %s and %s", word1, word2)
+            return 0.0
+
+        if len(lengths) != 3:
+            logger.warning("Incorrect amount of results returned, %s should have been 3". len(lengths))
+            return 0.0
+
+        try:
+            return lengths[0] / sum(lengths)
+        except ZeroDivisionError:
+            logger.warning("Sum of page lenghts is 0, cannot compute similarity")
+            return 0.0
