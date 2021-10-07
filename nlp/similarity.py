@@ -23,9 +23,9 @@ CX_ID = os.environ.get("GOOGLE_CX_ID", "")
 
 def _permutate_words(word1: str, word2: str) -> Iterator[Tuple[str, str]]:
     for query in (
-        f"{word1}&hq={word2}",  # word1 and word2
-        f"{word1}&exactTerms={word1}&excludeTerms={word2}",  # word 1 and not word2
-        f"{word2}&exactTerms={word2}&excludeTerms={word1}",  # word2 and not word1
+        f"{word1}&hq={word2}", # word1 and word2
+        f"{word1}&excludeTerms={word2}",  # word 1 and not word2
+        f"{word2}&excludeTerms={word1}",  # word2 and not word1
     ):
         yield query
 
