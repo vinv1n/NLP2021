@@ -61,8 +61,8 @@ class WebSimilarity:
             logger.warning("No results with words %s and %s", word1, word2)
             return 0.0
 
-        if len(lengths) != 3:
-            logger.warning("Incorrect amount of results returned, %s should have been 3". len(lengths))
+        if (amount := len(lengths)) != 3:
+            logger.warning("Incorrect amount of results returned, %s should have been 3". amount)
             return 0.0
 
         try:
