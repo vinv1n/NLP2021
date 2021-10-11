@@ -16,17 +16,14 @@ if __name__ == "__main__":
         "words", nargs="*", help="Words to which web similarity is computed"
     )
     parser.add_argument(
-        "--wordlist",
-        help="Path to the wordlist json file",
-        type=str,
-        dest="wordlist"
+        "--wordlist", help="Path to the wordlist json file", type=str, dest="wordlist"
     )
     parser.add_argument(
         "--verbose",
         "-v",
         help="More verbose output",
         dest="verbose",
-        action="store_true"
+        action="store_true",
     )
     args = parser.parse_args()
 
@@ -34,7 +31,9 @@ if __name__ == "__main__":
         logger.setLevel(logging.DEBUG)
 
     if len(args.words) != 2 and not args.wordlist:
-        logger.error("Only two words or wordlist path are accepted %s provided", len(args.words))
+        logger.error(
+            "Only two words or wordlist path are accepted %s provided", len(args.words)
+        )
         sys.exit(1)
 
     similarity = WebSimilarity(wordlist=args.wordlist)
