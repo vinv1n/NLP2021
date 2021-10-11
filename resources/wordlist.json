@@ -1,0 +1,18 @@
+{
+    "0": ["atmosphere", "stratosphere", 3],
+    "1": ["ozone", "oxidant", 1],
+    "2": ["planet", "earth", 3],
+    "3": ["dispersion", "concentration", 2],
+    "4": ["radiation", "emission", 1],
+    "5": ["pollution", "contamination", 1],
+    "7": ["active", "inactive", 2],
+    "8": ["abundant", "scarce", 2],
+    "9": ["carbon dioxide", "co2", 1],
+    "10": ["flora", "plant", 3],
+    "11": ["dense", "thin", 2],
+    "12": ["warm", "cold", 2],
+    "13": ["cloud", "mist", 1],
+    "14": ["storm", "blizzard", 3],
+    "15": ["organic", "natural", 1],
+    "16": ["simple", "complex",  3]
+}
