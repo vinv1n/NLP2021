@@ -3,8 +3,15 @@ import os
 import requests
 import json
 import pprint
+import nltk
+import pandas as pd
 
+from itertools import product
+
+from pathlib import Path
 from typing import Optional, Iterator, Tuple, Any, Dict, List
+
+from nltk.corpus import wordnet
 
 
 logger = logging.getLogger(__name__)
@@ -32,13 +39,43 @@ def _permutate_words(word1: str, word2: str) -> Iterator[Tuple[str, str]]:
 
 class WebSimilarity:
 
-    def __init__(self) -> None:
+    def __init__(self, wordlist: str) -> None:
         self.session = requests.Session()
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0"
             }
         )
+
+        self._loaded = False
+        self.wordlist = self._load_wordlist(Path(wordlist))
+
+    @property
+    def _load_wordnet(self):
+        # this is kind stupid feature as I was not able to find
+        # to check if wordnet is already downloaded
+        if not self._loaded:
+            self._loaded = nltk.download("wordnet")
+
+    def _load_wordlist(self, wordlist_path: Path) -> List[Tuple[str, str, str, int]]:
+        if not wordlist_path.exists():
+            logger.warning("Path %s to the wordlist does not exist", wordlist_path.as_posix())
+            return []
+
+        data = {}
+        with open(wordlist_path, "r") as fd:
+            try:
+                data = json.load(fd)
+            except (
+                json.JSONDecodeError,
+                ValueError,
+                OSError,
+                IOError
+            ) as e:
+                logger.warning("Failed to load wordlist, error %s", e)
+                return []
+
+        return [tuple(x) for _, x in data.items()]
 
     def _get_search_pages(self, word1: str, word2: str) -> List[int]:
         if not GOOGLE_API_KEY:
@@ -66,7 +103,7 @@ class WebSimilarity:
                 continue
 
             logger.info("Recieved response with content %s from google search api", request_url)
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.isEnabledFor(loggingoduct.DEBUG):
                 logger.debug("Response from api %s", pprint.pformat(result))
 
             try:
@@ -81,7 +118,7 @@ class WebSimilarity:
 
         return results
 
-    def web_similarity(self, word1: str, word2: str):
+    def compute_web_similarity(self, word1: str, word2: str) -> float:
         logger.info("Using words %s and %s for the search", word1, word2)
 
         lengths = self._get_search_pages(word1, word2)
@@ -101,3 +138,99 @@ class WebSimilarity:
 
         logger.info("Similarity between word %s and %s is %s", word1, word2, similarity)
         return similarity
+
+    @staticmethod
+    def _get_correct_word_pair(word1_entry, word2_entry, word1, word2):
+        """
+        This makes my eyes bleed
+
+        """
+        for w1, w2 in product(word1_entry, word2_entry):
+            if w1.pos() == w2.pos():
+                return w1, w2
+        return None, None
+
+    def compute_semantic_similarity(self, word1: str, word2: str) -> Tuple[float, float, int]:
+        """
+        Computes leacock chordorow (LCH) Similarity, Path length and Wu Palmer similarities
+
+        :return: Tuple containing Wu palmer similarity, lch similarity and path length
+        """
+        # load wordnet on demand
+        self._load_wordnet
+
+        try:
+            # this is literally crime against humanity to implement query system like this
+            # the query pattern lemmas.pos.nn is a HUGE antipattern and should not exist
+            word1_entry_list = filter(
+                lambda x: x if x.name().startswith(word1) else None,
+                wordnet.synsets(word1)
+            )
+            word2_entry_list = filter(
+                lambda x: x if x.name().startswith(word2) else None,
+                wordnet.synsets(word2)
+            )
+        except (IndexError, nltk.corpus.reader.wordnet.WordNetError) as e:
+            logger.warning(
+                "Could not find words %s and %s from wordnet, error %s",
+                word1,
+                word2,
+                e
+            )
+            return 0.0, 0.0, 0.0
+
+        word1_entry, word2_entry = self._get_correct_word_pair(
+            word1_entry_list,
+            word2_entry_list,
+            word1,
+            word2
+        )
+        if not all((word1_entry, word2_entry,)):
+            logger.warning(
+                "Could not find matchig word pair for %s and %s found %s and %s",
+                word1,
+                word2,
+                word1_entry_list,
+                word2_entry_list
+            )
+            return 0.0, 0.0, 0.0
+
+        logger.debug(
+            "Selected wordnet entries word1: %s word2: %s",
+            word1_entry,
+            word2_entry
+        )
+
+        wu_palmer = word1_entry.wup_similarity(word2_entry)
+        path_similarity = word1_entry.path_similarity(word2_entry)
+        lch_similarity = word1_entry.lch_similarity(word2_entry)
+
+        logger.debug(
+            "Metrics for words %s and %s: Wu palmer: %s, path length: %s, leacock chordorow: %s",
+            word1,
+            word2,
+            wu_palmer,
+            path_similarity,
+            lch_similarity
+        )
+        return wu_palmer, lch_similarity, path_similarity
+
+    def construct_result_table(self, words: List[str]):
+        """
+        Construct result table from provided wordlist
+        """
+        table = pd.DataFrame()
+        for word1, word2, relation in self.wordlist:
+            web_similarity = self.compute_web_similarity(word1, word2)
+            wu_palmer, path_length, lch = self.compute_semantic_similarity(word1, word2)
+
+            series = pd.Series(
+                [web_similarity, wu_palmer, path_length, lch],
+                index=["Web similarity", "Wu & Palmer", "Path similarity", "Leacock Chordorow"],
+                name=f"{word1}<->{word2}"
+            )
+
+            # join new series next to old table
+            table = pd.concat([table, series], axis=1)
+
+        logger.info("Resulting table:\n%s", table)
