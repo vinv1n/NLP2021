@@ -25,6 +25,21 @@ if __name__ == "__main__":
         dest="verbose",
         action="store_true",
     )
+    parser.add_argument(
+        "--single",
+        "-s",
+        help="Single Similarity metric",
+        choices=["webjaccard"],
+        dest="single",
+    )
+    parser.add_argument(
+        "--webjaccard-type",
+        "-t",
+        help="Single Similarity metric type",
+        choices=["amount", "snippet"],
+        default="amount",
+        dest="jaccard_type",
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -37,4 +52,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     similarity = WebSimilarity(wordlist=args.wordlist)
-    similarity.construct_result_table(args.words)
+    if args.single and args.words:
+        similarity.compute_web_jaccard_similarity(
+            *args.words, similarity_type=args.jaccard_type
+        )
+    else:
+        similarity.construct_result_table(args.words)
