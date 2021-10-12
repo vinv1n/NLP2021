@@ -6,6 +6,7 @@ import pprint
 import nltk
 import pandas as pd
 
+from queue import Queue
 from itertools import product
 
 from pathlib import Path
@@ -28,6 +29,10 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 CX_ID = os.environ.get("GOOGLE_CX_ID", "")
 
 
+class WebSimilarityError(Exception):
+    pass
+
+
 def _permutate_words(word1: str, word2: str) -> Iterator[Tuple[str, str]]:
     for query in (
         f"{word1}&hq={word2}",  # word1 and word2
@@ -47,7 +52,10 @@ class WebSimilarity:
         )
 
         self._loaded = False
-        self.wordlist = self._load_wordlist(Path(wordlist))
+        if wordlist:
+            self.wordlist = self._load_wordlist(Path(wordlist))
+        else:
+            self.wordlist = []
 
     @property
     def _load_wordnet(self):
@@ -103,9 +111,79 @@ class WebSimilarity:
             logger.info(
                 "Recieved response with content %s from google search api", request_url
             )
-            if logger.isEnabledFor(loggingoduct.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Response from api %s", pprint.pformat(result))
 
+            with open(f"{word1}-{word2}.json", "w") as f:
+                f.write(json.dumps(result, indent=4))
+            results.append(result)
+
+        return results
+
+    def compute_web_jaccard_similarity(
+        self, word1: str, word2: str, similarity_type: str = "amount"
+    ) -> float:
+        if similarity_type == "amount":
+            similarity_func = self._compute_web_jaccard_similarity_by_search_results
+        elif similarity_type == "snippet":
+            similarity_func = self._compute_web_jaccard_similarity_by_snippets
+        else:
+            raise WebSimilarityError(
+                f"Invalid WebJaccard similarity type {similarity_type} provided, available choices are amount and snippet"
+            )
+
+        return similarity_func(word1, word2)
+
+    @staticmethod
+    def _construct_url_from_openseach_template(
+        template: str, entry: Dict[str, Any]
+    ) -> str:
+        constructed_url = template
+        for key, value in entry.items():
+            if key != "searchTerms":
+                query = f"{{{key}?}}"
+            else:
+                query = f"{{{key}}}"
+
+            constructed_url = constructed_url.replace(query, value)
+        return constructed_url
+
+    def _compute_web_jaccard_similarity_by_snippets(
+        self, word1: str, word2: str
+    ) -> float:
+        # NOTE: from google api ducumentation
+        # due to this limitation 100 is absolute maximum for snippet
+        #
+        # The index of the first result to return. The default number of results per page is 10,
+        # so &start=11 would start at the top of the second page of results. Note: The JSON API will
+        # never return more than 100 results, even if more than 100 documents match the query, so setting the sum of start + num
+        # to a number greater than 100 will produce an error. Also note that the maximum value for num is 10.
+        logger.info(
+            "Using words %s and %s for WebJaccard similarity by snippets", word1, word2
+        )
+
+        queue = Queue()
+
+        response = self._get_search_pages(word1, word2)
+        for resp in response:
+            queue.put(resp)
+
+        while queue.not_empty:
+            entry = queue.get()
+
+    def _compute_web_jaccard_similarity_by_search_results(
+        self, word1: str, word2: str
+    ) -> float:
+        logger.info(
+            "Using words %s and %s for WebJaccard similarity by search results",
+            word1,
+            word2,
+        )
+
+        search_results = self._get_search_pages(word1, word2)
+
+        lengths = []
+        for result in search_results:
             try:
                 search_results = int(
                     result.get("searchInformation", {}).get("totalResults", "0")
@@ -113,15 +191,16 @@ class WebSimilarity:
             except ValueError:
                 search_results = 0
 
-            logger.info("With query %s found %s search results", query, search_results)
-            results.append(search_results)
+            logger.info("Found %s search results", search_results)
 
-        return results
+            # api has 10 results per "page" so that is what we use
+            # TODO: make this less hard coded and more user defined
+            count = search_results // 10
+            if search_results % 10 != 0:  # one leftover so increase page cout by one
+                count += 1
 
-    def compute_web_similarity(self, word1: str, word2: str) -> float:
-        logger.info("Using words %s and %s for the search", word1, word2)
+            lengths.append(count)
 
-        lengths = self._get_search_pages(word1, word2)
         if not lengths:
             logger.warning("No results with words %s and %s", word1, word2)
             return 0.0
@@ -222,7 +301,7 @@ class WebSimilarity:
         """
         table = pd.DataFrame()
         for word1, word2, relation in self.wordlist:
-            web_similarity = self.compute_web_similarity(word1, word2)
+            web_similarity = self.compute_web_jaccard_similarity(word1, word2)
             wu_palmer, path_length, lch = self.compute_semantic_similarity(word1, word2)
 
             series = pd.Series(
@@ -236,7 +315,7 @@ class WebSimilarity:
                 name=f"{word1} <-> {word2}",
             )
 
-            # join new series next to old table
+            # join new series next to exiting table
             table = pd.concat([table, series], axis=1)
 
         logger.info("Resulting table:\n%s", table)
