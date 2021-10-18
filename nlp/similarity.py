@@ -186,14 +186,6 @@ class WebSimilarity:
         # to a number greater than 100 will produce an error. Also note that the maximum value for num is 10.
         logger.info("Fetching snippets for search words %s %s", word1, word2)
 
-        with open("samples/cat-repair.json") as f:
-            data = json.load(f)
-            tmp = data.get("url", {}).get("template", "")
-            pp = next_page = data.get("queries", {}).get("nextPage", [])
-            for p in pp:
-                self._construct_url_from_openseach_template(tmp, p)
-        return
-
         # setup queue to keep next pages in order
         queue = Queue()
 
