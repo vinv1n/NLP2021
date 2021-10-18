@@ -33,12 +33,11 @@ if __name__ == "__main__":
         dest="single",
     )
     parser.add_argument(
-        "--webjaccard-type",
-        "-t",
-        help="Single Similarity metric type",
-        choices=["amount", "snippet"],
-        default="amount",
-        dest="jaccard_type",
+        "--snippet",
+        "-p",
+        help="Fecth snippets based on word",
+        dest="snippet",
+        action="store_true",
     )
     args = parser.parse_args()
 
@@ -53,8 +52,8 @@ if __name__ == "__main__":
 
     similarity = WebSimilarity(wordlist=args.wordlist)
     if args.single and args.words:
-        similarity.compute_web_jaccard_similarity(
-            *args.words, similarity_type=args.jaccard_type
-        )
+        similarity.compute_web_jaccard_similarity(*args.words)
+    elif args.snippet:
+        similarity.fetch_search_snippets(*args.words)
     else:
         similarity.construct_result_table(args.words)
