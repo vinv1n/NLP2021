@@ -59,7 +59,6 @@ class WebSimilarity:
             }
         )
 
-        self.snippets: DefaultDict[int, str] = defaultdict(str)
         self._loaded = False
         if wordlist:
             self.wordlist = self._load_wordlist(Path(wordlist))
@@ -99,42 +98,47 @@ class WebSimilarity:
 
         return [tuple(x) for _, x in data.items()]
 
+    def _fetch_search_api_result(self, query: str) -> Dict[str, Any]:
+        request_url = f"{BASE_SEARCH_URL}&cx={CX_ID}q={query}"
+        response = self.session.get(request_url)
+        if response.status_code != 200:
+            logger.critical(
+                "Return code %s from google api %s",
+                response.status_code,
+                response.text,
+            )
+            return {}
+
+        try:
+            result = response.json()
+        except (ValueError, IOError, json.decoder.JSONDecodeError) as e:
+            # task is somewhat in consistent between task 1 and task 2.
+            logger.warning(
+                "Response from url %s was not json, error %s", request_url, e
+            )
+            return {}
+
+        logger.info(
+            "Recieved response with content %s from google search api", request_url
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Response from api %s", pprint.pformat(result))
+
+        if DEBUG:
+            self._dump_search_results(result)
+
+        return result
+
     def _get_search_pages(self, word1: str, word2: str) -> List[int]:
         if not GOOGLE_API_KEY:
             logger.critical("Could not get page count, missing key")
             return []
 
-        request_url_base = f"{BASE_SEARCH_URL}&cx={CX_ID}q"
-
         results = []
         for query in _permutate_words(word1, word2):
-            request_url = f"{request_url_base}={query}"
-            response = self.session.get(request_url)
-            if response.status_code != 200:
-                logger.critical(
-                    "Return code %s from google api %s",
-                    response.status_code,
-                    response.text,
-                )
-
-                return []
-
-            try:
-                result = response.json()
-            except (ValueError, IOError, json.decoder.JSONDecodeError) as e:
-                logger.warning(
-                    "Response from url %s was not json, error %s", request_url, e
-                )
+            result = self._fetch_search_api_result(query)
+            if not result:
                 continue
-
-            logger.info(
-                "Recieved response with content %s from google search api", request_url
-            )
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Response from api %s", pprint.pformat(result))
-
-            if DEBUG:
-                self._dump_search_results(result)
 
             results.append(result)
 
@@ -160,6 +164,7 @@ class WebSimilarity:
 
             constructed_url = re.sub(query, str(value), constructed_url)
 
+        # task is somewhat in consistent between task 1 and task 2.
         url_parts = []
         for part in constructed_url.split("&"):
             # this as really hacky way to do this, but I don't bother
@@ -171,7 +176,7 @@ class WebSimilarity:
 
         return "&".join(url_parts)
 
-    def fetch_search_snippets(self, word1: str, word2: str) -> float:
+    def fetch_search_snippets(self, word: str, limit: int = -1) -> List[str]:
         """
         Task 4. implementation, relies on the previous fetch search result from custom
         search api implementation
@@ -184,19 +189,21 @@ class WebSimilarity:
         # so &start=11 would start at the top of the second page of results. Note: The JSON API will
         # never return more than 100 results, even if more than 100 documents match the query, so setting the sum of start + num
         # to a number greater than 100 will produce an error. Also note that the maximum value for num is 10.
-        logger.info("Fetching snippets for search words %s %s", word1, word2)
+        logger.info("Fetching snippets for search word %s", word)
 
         # setup queue to keep next pages in order
         queue = Queue()
 
         # add initial search pages to the queue
-        response = self._get_search_pages(word1, word2)
-        for resp in response:
-            queue.put(resp)
+        response = self._get_search_pages(word)
+        for index, resp in enumerate(response):
+            queue.put((index, resp))
 
         lock = Lock()
-        while not queue.empty():
-            search_page = queue.get()
+        snippets: List[str] = []
+        counter = 0
+        while bool(not queue.empty() or (limit != -1 and counter > limit)):
+            index, search_page = queue.get()
             if not search_page:
                 continue
 
@@ -226,8 +233,8 @@ class WebSimilarity:
                         logger.warning("Could not decode json, error %s", e)
                         continue
 
-                    # add new entry to queue
-                    queue.put(content)
+                    # add new entry to queue and keep index
+                    queue.put((index, content))
 
             for item in search_page.get("items", []):
                 # items is a list of dicts
@@ -237,7 +244,20 @@ class WebSimilarity:
                     continue
 
                 with lock:
-                    self.snippets[hash(snippet)] = snippet
+                    counter += 1
+                    snippets.append(snippet)
+
+        return snippets
+
+    def sim_snippet1(self):
+        """
+        In python styleguide only class names are in CamelCase, funcs are _always_ in lowecase :)
+
+        However, this is task 5 implementation
+        """
+        for word1, word2 in self.wordlist:
+            snippets1 = self.fetch_search_snippets(word1, limit=5)
+            snippets2 = self.fetch_search_snippets(word2, limit=5)
 
     def _compute_web_jaccard_similarity_by_search_results(
         self, word1: str, word2: str
