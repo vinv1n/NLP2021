@@ -4,15 +4,19 @@ import requests
 import json
 import pprint
 import nltk
+import re
 import pandas as pd
 
 from queue import Queue
+from pathlib import Path
 from itertools import product
+from collections import defaultdict
 
 from pathlib import Path
-from typing import Optional, Iterator, Tuple, Any, Dict, List
+from typing import Optional, Iterator, Tuple, Any, Dict, List, DefaultDict
 
 from nltk.corpus import wordnet
+from multiprocessing import Lock
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,10 @@ https://stackoverflow.com/questions/4082966/what-are-the-alternatives-now-that-t
 
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 CX_ID = os.environ.get("GOOGLE_CX_ID", "")
+BASE_SEARCH_URL = (
+    f"https://customsearch.googleapis.com/customsearch/v1?key={GOOGLE_API_KEY}"
+)
+DEBUG = False  # set True to allow search json to be written to disk
 
 
 class WebSimilarityError(Exception):
@@ -47,15 +55,23 @@ class WebSimilarity:
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0"
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Maconstructed_url = template[:]c OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0"
             }
         )
 
+        self.snippets: DefaultDict[int, str] = defaultdict(str)
         self._loaded = False
         if wordlist:
             self.wordlist = self._load_wordlist(Path(wordlist))
         else:
             self.wordlist = []
+
+    @staticmethod
+    def _dump_search_results(entry):
+        filepath = Path("samples", f"{word1}-{word2}.json")
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "w") as f:
+            f.write(json.dumps(result, indent=4))
 
     @property
     def _load_wordnet(self):
@@ -69,7 +85,9 @@ class WebSimilarity:
             logger.warning(
                 "Path %s to the wordlist does not exist", wordlist_path.as_posix()
             )
-            return []
+            return (
+                []
+            )  # make a copy of the list as we do not want to mess the original url
 
         data = {}
         with open(wordlist_path, "r") as fd:
@@ -86,7 +104,7 @@ class WebSimilarity:
             logger.critical("Could not get page count, missing key")
             return []
 
-        request_url_base = f"https://customsearch.googleapis.com/customsearch/v1?key={GOOGLE_API_KEY}&cx={CX_ID}&q"
+        request_url_base = f"{BASE_SEARCH_URL}&cx={CX_ID}q"
 
         results = []
         for query in _permutate_words(word1, word2):
@@ -98,6 +116,7 @@ class WebSimilarity:
                     response.status_code,
                     response.text,
                 )
+
                 return []
 
             try:
@@ -114,43 +133,50 @@ class WebSimilarity:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Response from api %s", pprint.pformat(result))
 
-            with open(f"{word1}-{word2}.json", "w") as f:
-                f.write(json.dumps(result, indent=4))
+            if DEBUG:
+                self._dump_search_results(result)
+
             results.append(result)
 
         return results
 
-    def compute_web_jaccard_similarity(
-        self, word1: str, word2: str, similarity_type: str = "amount"
-    ) -> float:
-        if similarity_type == "amount":
-            similarity_func = self._compute_web_jaccard_similarity_by_search_results
-        elif similarity_type == "snippet":
-            similarity_func = self._compute_web_jaccard_similarity_by_snippets
-        else:
-            raise WebSimilarityError(
-                f"Invalid WebJaccard similarity type {similarity_type} provided, available choices are amount and snippet"
-            )
-
-        return similarity_func(word1, word2)
+    def compute_web_jaccard_similarity(self, word1: str, word2: str) -> float:
+        return self._compute_web_jaccard_similarity_by_search_results(word1, word2)
 
     @staticmethod
     def _construct_url_from_openseach_template(
         template: str, entry: Dict[str, Any]
     ) -> str:
-        constructed_url = template
+
+        constructed_url = template[:]
         for key, value in entry.items():
-            if key != "searchTerms":
-                query = f"{{{key}?}}"
-            else:
+            if key == "title":
+                continue
+
+            if key == "searchTerms":
                 query = f"{{{key}}}"
+            else:
+                query = f"{{{key}\\?}}"
 
-            constructed_url = constructed_url.replace(query, value)
-        return constructed_url
+            constructed_url = re.sub(query, str(value), constructed_url)
 
-    def _compute_web_jaccard_similarity_by_snippets(
-        self, word1: str, word2: str
-    ) -> float:
+        url_parts = []
+        for part in constructed_url.split("&"):
+            # this as really hacky way to do this, but I don't bother
+            # to make this cleaner
+            if part.endswith("}") and part.find("=") != -1:
+                continue
+
+            url_parts.append(part)
+
+        return "&".join(url_parts)
+
+    def fetch_search_snippets(self, word1: str, word2: str) -> float:
+        """
+        Task 4. implementation, relies on the previous fetch search result from custom
+        search api implementation
+        """
+
         # NOTE: from google api ducumentation
         # due to this limitation 100 is absolute maximum for snippet
         #
@@ -158,18 +184,68 @@ class WebSimilarity:
         # so &start=11 would start at the top of the second page of results. Note: The JSON API will
         # never return more than 100 results, even if more than 100 documents match the query, so setting the sum of start + num
         # to a number greater than 100 will produce an error. Also note that the maximum value for num is 10.
-        logger.info(
-            "Using words %s and %s for WebJaccard similarity by snippets", word1, word2
-        )
+        logger.info("Fetching snippets for search words %s %s", word1, word2)
 
+        with open("samples/cat-repair.json") as f:
+            data = json.load(f)
+            tmp = data.get("url", {}).get("template", "")
+            pp = next_page = data.get("queries", {}).get("nextPage", [])
+            for p in pp:
+                self._construct_url_from_openseach_template(tmp, p)
+        return
+
+        # setup queue to keep next pages in order
         queue = Queue()
 
+        # add initial search pages to the queue
         response = self._get_search_pages(word1, word2)
         for resp in response:
             queue.put(resp)
 
-        while queue.not_empty:
-            entry = queue.get()
+        lock = Lock()
+        while not queue.empty():
+            search_page = queue.get()
+            if not search_page:
+                continue
+
+            if next_page := search_page.get("queries", {}).get("nextPage", []):
+                # for some reason this is a list, not sure why
+                template = search_page.get("url", {}).get("template", "")
+                for pages in next_page:
+                    next_url = self._construct_url_from_openseach_template(
+                        template, pages
+                    )
+                    if not next_url:
+                        logger.warning("Could not construct url from entry %s", pages)
+                        continue
+
+                    response = self.session.get(next_url)
+                    if not response or response.status_code != 200:
+                        logger.warning(
+                            "Could not fetch next page, reason %s %s",
+                            response.status_code,
+                            response.text,
+                        )
+                        continue
+
+                    try:
+                        content = response.json()
+                    except (ValueError, json.decoder.JSONDecodeError) as e:
+                        logger.warning("Could not decode json, error %s", e)
+                        continue
+
+                    # add new entry to queue
+                    queue.put(content)
+
+            for item in search_page.get("items", []):
+                # items is a list of dicts
+                snippet = item.get("snippet", "")
+                if not snippet:
+                    logger.warning("Search result entry without snippet, ignoring")
+                    continue
+
+                with lock:
+                    self.snippets[hash(snippet)] = snippet
 
     def _compute_web_jaccard_similarity_by_search_results(
         self, word1: str, word2: str
