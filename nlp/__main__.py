@@ -54,6 +54,6 @@ if __name__ == "__main__":
     if args.single and args.words:
         similarity.compute_web_jaccard_similarity(*args.words)
     elif args.snippet:
-        similarity.fetch_search_snippets(*args.words)
+        similarity.sim_snippet1(*args.words)
     else:
         similarity.construct_result_table(args.words)

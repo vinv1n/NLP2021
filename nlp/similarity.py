@@ -7,9 +7,11 @@ import nltk
 import re
 import pandas as pd
 
-from queue import Queue
+from nltk.tokenize import word_tokenize
+from nltk.stem.snowball import SnowballStemmer
+from queue import SimpleQueue
 from pathlib import Path
-from itertools import product
+from itertools import product, combinations
 from collections import defaultdict
 
 from pathlib import Path
@@ -60,6 +62,11 @@ class WebSimilarity:
         )
 
         self._loaded = False
+
+        # we assume that we use english and we do not care
+        # about stopwords
+        self.stemmer = SnowballStemmer(language="english", ignore_stopwords=True)
+
         if wordlist:
             self.wordlist = self._load_wordlist(Path(wordlist))
         else:
@@ -77,6 +84,7 @@ class WebSimilarity:
         # this is kind stupid feature as I was not able to find
         # to check if wordnet is already downloaded
         if not self._loaded:
+            self.stopwords = nltk.download("stopwords")
             self._loaded = nltk.download("wordnet")
 
     def _load_wordlist(self, wordlist_path: Path) -> List[Tuple[str, str, str, int]]:
@@ -99,7 +107,7 @@ class WebSimilarity:
         return [tuple(x) for _, x in data.items()]
 
     def _fetch_search_api_result(self, query: str) -> Dict[str, Any]:
-        request_url = f"{BASE_SEARCH_URL}&cx={CX_ID}q={query}"
+        request_url = f"{BASE_SEARCH_URL}&cx={CX_ID}&q={query}"
         response = self.session.get(request_url)
         if response.status_code != 200:
             logger.critical(
@@ -112,7 +120,6 @@ class WebSimilarity:
         try:
             result = response.json()
         except (ValueError, IOError, json.decoder.JSONDecodeError) as e:
-            # task is somewhat in consistent between task 1 and task 2.
             logger.warning(
                 "Response from url %s was not json, error %s", request_url, e
             )
@@ -152,6 +159,17 @@ class WebSimilarity:
         template: str, entry: Dict[str, Any]
     ) -> str:
 
+        try:
+            start_value = int(entry.get("startIndex", "0"))
+            if start_value > 100:
+                logger.info("Search limit encountered, exiting")
+                return ""
+
+        except ValueError:
+            logger.warning("Could not convert %s to int", value)
+            return ""
+
+        # add api key to the dict
         constructed_url = template[:]
         for key, value in entry.items():
             if key == "title":
@@ -164,7 +182,6 @@ class WebSimilarity:
 
             constructed_url = re.sub(query, str(value), constructed_url)
 
-        # task is somewhat in consistent between task 1 and task 2.
         url_parts = []
         for part in constructed_url.split("&"):
             # this as really hacky way to do this, but I don't bother
@@ -174,6 +191,7 @@ class WebSimilarity:
 
             url_parts.append(part)
 
+        url_parts.insert(len(url_parts) - 1, f"key={GOOGLE_API_KEY}")
         return "&".join(url_parts)
 
     def fetch_search_snippets(self, word: str, limit: int = -1) -> List[str]:
@@ -192,20 +210,21 @@ class WebSimilarity:
         logger.info("Fetching snippets for search word %s", word)
 
         # setup queue to keep next pages in order
-        queue = Queue()
+        queue = SimpleQueue()
+        lock = Lock()
 
         # add initial search pages to the queue
-        response = self._get_search_pages(word)
-        for index, resp in enumerate(response):
-            queue.put((index, resp))
+        response = self._fetch_search_api_result(word)
+        if response:
+            queue.put(response, block=False)
 
-        lock = Lock()
-        snippets: List[str] = []
         counter = 0
-        while bool(not queue.empty() or (limit != -1 and counter > limit)):
-            index, search_page = queue.get()
+        snippets: List[str] = []
+        while bool(queue.qsize() > 0 or limit != -1 and counter > limit):
+            search_page = queue.get()
             if not search_page:
-                continue
+                logger.info("No more items in a queue exiting")
+                break
 
             if next_page := search_page.get("queries", {}).get("nextPage", []):
                 # for some reason this is a list, not sure why
@@ -218,6 +237,7 @@ class WebSimilarity:
                         logger.warning("Could not construct url from entry %s", pages)
                         continue
 
+                    logger.info("Next url is %s", next_url)
                     response = self.session.get(next_url)
                     if not response or response.status_code != 200:
                         logger.warning(
@@ -234,7 +254,7 @@ class WebSimilarity:
                         continue
 
                     # add new entry to queue and keep index
-                    queue.put((index, content))
+                    queue.put(content, block=False)
 
             for item in search_page.get("items", []):
                 # items is a list of dicts
@@ -243,21 +263,64 @@ class WebSimilarity:
                     logger.warning("Search result entry without snippet, ignoring")
                     continue
 
-                with lock:
-                    counter += 1
-                    snippets.append(snippet)
+                counter += 1
+                snippets.append(snippet)
 
         return snippets
 
-    def sim_snippet1(self):
+    def sim_snippet1(self, *args):
         """
         In python styleguide only class names are in CamelCase, funcs are _always_ in lowecase :)
 
         However, this is task 5 implementation
         """
-        for word1, word2 in self.wordlist:
+        self._load_wordnet
+        if len(args) > 0:
+            wordlist = list(combinations(args, 2))
+        else:
+            wordlist = self.wordlist
+
+        similarities = pd.DataFrame()
+        for word1, word2 in wordlist:
             snippets1 = self.fetch_search_snippets(word1, limit=5)
             snippets2 = self.fetch_search_snippets(word2, limit=5)
+            if not all((snippets1, snippets2)):
+                logger.warning("Could not fetch snippets for words %s %s", word1, word2)
+                continue
+
+            # get tokens for snippets
+            snippet1_tokens = [tokenize(x) for x in snippets1]
+            snippet2_tokens = [tokenize(x) for x in snippets2]
+
+            # and then stemming, note that noise removal is not really needed
+            # as these are quite clean samples anyway
+            stem_word1 = [self.stemmer.stem(x) for x in snippet1_tokens]
+            stem_word2 = [self.stemmer.stem(x) for x in snippet2_tokens]
+
+            try:
+                similarity = len(set(stem_word1).intersection(set(stem_word2))) / len(
+                    stem_word1
+                ) + len(stem_word1)
+            except ZeroDivisionError:
+                logger.warning("Length of all words in snippets is 0")
+                continue
+
+            (
+                wu_palmer,
+                lch_similarity,
+                path_similarity,
+            ) = self.compute_semantic_similarity(word1, word2)
+            frame = pd.Series(
+                [similarity, wu_palmer, lch_similarity, path_similarity],
+                index=[
+                    "Task 5 similarity",
+                    "Wu Palmer similarity",
+                    "LCH similarity",
+                    "Path similarity",
+                ],
+            )
+            similarities = pd.concat([similarities, frame])
+        return similarities
 
     def _compute_web_jaccard_similarity_by_search_results(
         self, word1: str, word2: str
@@ -324,6 +387,7 @@ class WebSimilarity:
     ) -> Tuple[float, float, int]:
         """
         Computes leacock chordorow (LCH) Similarity, Path length and Wu Palmer similarities
+        Task 3. implementation
 
         :return: Tuple containing Wu palmer similarity, lch similarity and path length
         """
