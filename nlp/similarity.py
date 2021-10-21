@@ -1,12 +1,14 @@
 import logging
 import os
-import requests
+import requests_cache
 import json
 import pprint
 import nltk
 import re
 import pandas as pd
 
+from fuzzywuzzy import fuzz
+from datetime import timedelta
 from nltk.tokenize import word_tokenize
 from nltk.stem.snowball import SnowballStemmer
 from queue import SimpleQueue
@@ -55,10 +57,20 @@ def _permutate_words(word1: str, word2: str) -> Iterator[Tuple[str, str]]:
 
 class WebSimilarity:
     def __init__(self, wordlist: str) -> None:
-        self.session = requests.Session()
+        # avoid spamming api as little as possible
+        self.session = requests_cache.CachedSession(
+            "api_cache",
+            backend="sqlite",
+            # invalidate cache after two weeks
+            # this has to be done as rate limit of free queries in google search api
+            # and parsing html with selenium is just pure stupid
+            expire_after=timedelta(days=14),
+            allowable_codes=(200,),
+            stale_if_error=True,
+        )
         self.session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Maconstructed_url = template[:]c OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0"
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0"
             }
         )
 
@@ -76,14 +88,14 @@ class WebSimilarity:
             self.wordlist = []
 
     @staticmethod
-    def _dump_search_results(entry):
+    def _dump_search_results(entry: Dict[str, Any], word1: str, word2: str()) -> None:
         filepath = Path("samples", f"{word1}-{word2}.json")
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "w") as f:
-            f.write(json.dumps(result, indent=4))
+            f.write(json.dumps(entry, indent=4))
 
     @property
-    def _load_wordnet(self):
+    def _load_wordnet(self) -> None:
         # this is kind stupid feature as I was not able to find
         # to check if wordnet is already downloaded
         if not self._loaded:
@@ -156,12 +168,18 @@ class WebSimilarity:
         return results
 
     def compute_web_jaccard_similarity(self, word1: str, word2: str) -> float:
+        """
+        Wrapper for task 1
+        """
         return self._compute_web_jaccard_similarity_by_search_results(word1, word2)
 
     @staticmethod
     def _construct_url_from_openseach_template(
         template: str, entry: Dict[str, Any]
     ) -> str:
+        """
+        Helper function to construct urls from opensearch templates
+        """
 
         try:
             start_value = int(entry.get("startIndex", "0"))
@@ -224,7 +242,11 @@ class WebSimilarity:
 
         counter = 0
         snippets: List[str] = []
-        while bool(queue.qsize() > 0 or limit != -1 and counter > limit):
+        while queue.qsize() > 0:
+            if limit != -1 and counter > limit:
+                logger.info("Search limit %s reached exiting", limit)
+                break
+
             try:
                 search_page = queue.get(timeout=10, block=False)
             except Empty:
@@ -285,7 +307,7 @@ class WebSimilarity:
             result.extend(word_array)
         return result
 
-    def sim_snippet1(self, *args):
+    def sim_snippet1(self, *args) -> pd.DataFrame:
         """
         In python styleguide only class names are in CamelCase, funcs are _always_ in lowecase :)
 
@@ -341,9 +363,79 @@ class WebSimilarity:
         logger.info("Resulting similarities %s", similarities)
         return similarities
 
+    def sim_snippet2(
+        self, wordlist: List[Tuple[str, str, int]], limit: int = 0
+    ) -> pd.DataFrame:
+        """
+        Actual implementation of task 6. as this is needed again on task 7.
+        with different params we need to do this
+        """
+
+        def compute_similarity_of_words(word1, word2):
+            return fuzz.token_set_ratio(word1, word2)
+
+        # take max 3 pairs from wordlist
+        if limit > 0:
+            wordlist = wordlist[:limit]
+
+        results = []
+        for word1, word2, _ in wordlist:
+            snippets1 = self.fetch_search_snippets(word1, limit=10)
+            snippets2 = self.fetch_search_snippets(word2, limit=10)
+
+            # we assume that every snippet in a set is unique
+            shared = len(set(snippets1).intersection(set(snippets2)))
+
+            doc1 = "".join(snippets1)
+            doc2 = "".join(snippets2)
+            overlapping = compute_similarity_of_words(doc1, doc2)
+
+            logger.info(
+                "Amount of shared snippets between word %s and word %s is %s and overlapping snippets %s",
+                word1,
+                word2,
+                shared,
+                overlapping,
+            )
+            results.append((shared, overlapping))
+
+        frame = pd.DataFrame(results)
+        logger.info("Task 6 results are %s", frame)
+        return frame
+
+    def execute_sim_snippet2(
+        self, wordlist: List[Tuple[str, str, int]]
+    ) -> pd.DataFrame:
+        """
+        Implementation of Task 6.
+        """
+        # group (index 2) value 2 means that words have opposite meaning
+        words = list(filter(lambda x: x if x[2] == 2 else None, self.wordlist))
+
+        # take max 3 pairs from wordlist
+        frame = self.sim_snippet2(words[:3], limit=10)
+        logger.info("Task 6 results are %s", frame)
+        return frame
+
+    def compare_tasks(self, *args) -> pd.DataFrame:
+        """
+        Task 7
+        """
+        if len(args) > 0:
+            wordlist = list(combinations(args, 2))
+        else:
+            wordlist = self.wordlist
+
+        frame = self.sim_snippet2(wordlist)
+        logger.info("Result for task 7 is %s", frame)
+        return frame
+
     def _compute_web_jaccard_similarity_by_search_results(
         self, word1: str, word2: str
     ) -> float:
+        """
+        Implementation for task 1
+        """
         logger.info(
             "Using words %s and %s for WebJaccard similarity by search results",
             word1,
