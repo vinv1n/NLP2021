@@ -10,6 +10,7 @@ import pandas as pd
 from nltk.tokenize import word_tokenize
 from nltk.stem.snowball import SnowballStemmer
 from queue import SimpleQueue
+from queue import Empty
 from pathlib import Path
 from itertools import product, combinations
 from collections import defaultdict
@@ -62,6 +63,8 @@ class WebSimilarity:
         )
 
         self._loaded = False
+        self._stopwords = None
+        self._punkt = None
 
         # we assume that we use english and we do not care
         # about stopwords
@@ -84,7 +87,8 @@ class WebSimilarity:
         # this is kind stupid feature as I was not able to find
         # to check if wordnet is already downloaded
         if not self._loaded:
-            self.stopwords = nltk.download("stopwords")
+            self._stopwords = nltk.download("stopwords")
+            self._punkt = nltk.download("punkt")
             self._loaded = nltk.download("wordnet")
 
     def _load_wordlist(self, wordlist_path: Path) -> List[Tuple[str, str, str, int]]:
@@ -221,7 +225,11 @@ class WebSimilarity:
         counter = 0
         snippets: List[str] = []
         while bool(queue.qsize() > 0 or limit != -1 and counter > limit):
-            search_page = queue.get()
+            try:
+                search_page = queue.get(timeout=10, block=False)
+            except Empty:
+                break
+
             if not search_page:
                 logger.info("No more items in a queue exiting")
                 break
@@ -235,7 +243,7 @@ class WebSimilarity:
                     )
                     if not next_url:
                         logger.warning("Could not construct url from entry %s", pages)
-                        continue
+                        break
 
                     logger.info("Next url is %s", next_url)
                     response = self.session.get(next_url)
@@ -268,6 +276,15 @@ class WebSimilarity:
 
         return snippets
 
+    def _get_all_words(self, words: List[str]) -> List[str]:
+        """
+        ravel all nested lists
+        """
+        result = []
+        for word_array in words:
+            result.extend(word_array)
+        return result
+
     def sim_snippet1(self, *args):
         """
         In python styleguide only class names are in CamelCase, funcs are _always_ in lowecase :)
@@ -289,8 +306,8 @@ class WebSimilarity:
                 continue
 
             # get tokens for snippets
-            snippet1_tokens = [tokenize(x) for x in snippets1]
-            snippet2_tokens = [tokenize(x) for x in snippets2]
+            snippet1_tokens = self._get_all_words([word_tokenize(x) for x in snippets1])
+            snippet2_tokens = self._get_all_words([word_tokenize(x) for x in snippets2])
 
             # and then stemming, note that noise removal is not really needed
             # as these are quite clean samples anyway
@@ -320,6 +337,8 @@ class WebSimilarity:
                 ],
             )
             similarities = pd.concat([similarities, frame])
+
+        logger.info("Resulting similarities %s", similarities)
         return similarities
 
     def _compute_web_jaccard_similarity_by_search_results(
