@@ -6,6 +6,9 @@ import pprint
 import nltk
 import re
 import pandas as pd
+import csv
+import random
+import time
 
 from fuzzywuzzy import fuzz
 from datetime import timedelta
@@ -25,6 +28,9 @@ from multiprocessing import Lock
 
 
 logger = logging.getLogger(__name__)
+
+# setup seed for random based on current time
+random.seed(time.time())
 
 """
 I don't explain here how to get these, please see links below
@@ -582,3 +588,49 @@ class WebSimilarity:
             table = pd.concat([table, series], axis=1)
 
         logger.info("Resulting table:\n%s", table)
+
+    def compute_correlation_with_annotated_data(
+        self, annotated_data_path: str
+    ) -> float:
+        """
+        Implementation of task 8.
+        """
+        data_path = Path(annotated_data_path)
+        if not data_path.exists():
+            logger.critical(
+                "Path %s to the annotated data csv does not exist", data_path.as_posix()
+            )
+            return 0.0
+
+        data = []
+        with open(data_path, "r") as fd:
+            reader = csv.reader(csvfile, delimiter=",", quotechar="|")
+            for row in reader:
+                data.append(tuple(row))
+
+        if not data:
+            logger.critical("Empty csv provided")
+            return 0.0
+
+        logger.info("Computing web jaccard similarity and comparing 10 samples")
+
+        results = []
+        # take 10 random samples from the data helps to reduce rate limit
+        for word1, word2, similarity in random.choices(data, k=10):
+            web_jaccard = self.compute_web_jaccard_similarity(word1, word2)
+            results.append((web_jaccard, similarity))
+
+        if not results:
+            logger.warning("Similarity results are empty, this should not happen")
+            return 0.0
+
+        # make pd series out of the results
+        web_jaccard_similarity = pd.Series([x[0] for x in results])
+        human_determined_similarity = pd.Series([x[1] for x in results])
+
+        correlation = web_jaccard_similarity.corr(human_determined_similarity)
+        logger.info(
+            "Correlation between human determined similarities and web jaccard similaries is %s",
+            correlation,
+        )
+        return correlation
