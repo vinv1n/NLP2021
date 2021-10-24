@@ -566,7 +566,7 @@ class WebSimilarity:
 
     def construct_result_table(self, words: List[str]):
         """
-        Construct result table from provided wordlist
+        Construct result table from provided wordlist, task 3. wrapper
         """
         table = pd.DataFrame()
         for word1, word2, relation in self.wordlist:
@@ -588,6 +588,7 @@ class WebSimilarity:
             table = pd.concat([table, series], axis=1)
 
         logger.info("Resulting table:\n%s", table)
+        return table
 
     def compute_correlation_with_annotated_data(
         self, annotated_data_path: str

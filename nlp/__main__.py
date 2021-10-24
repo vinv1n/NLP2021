@@ -39,6 +39,13 @@ if __name__ == "__main__":
         dest="snippet",
         action="store_true",
     )
+    parser.add_argument(
+        "--task",
+        choices=[2, 3, 4, 5, 6, 7, 8],
+        type=int,
+        help="Select task to executute",
+        dest="task",
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -51,9 +58,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     similarity = WebSimilarity(wordlist=args.wordlist)
-    if args.single and args.words:
-        similarity.compute_web_jaccard_similarity(*args.words)
-    elif args.snippet:
-        similarity.sim_snippet1(*args.words)
-    else:
-        similarity.construct_result_table(args.words)
+    if args.task == 3:
+        results = similarity.construct_result_table(args.words)
+    elif args.task == 4:
+        results = similarity.sim_snippet1(*args.words)
+
+    with open(f"results-task-{str(args.task)}.html", "w") as fd:
+        fd.write(results.to_html())
