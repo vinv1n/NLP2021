@@ -41,7 +41,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--task",
-        choices=[2, 3, 4, 5, 6, 7, 8],
+        choices=[2, 3, 5, 6, 7, 8],
         type=int,
         help="Select task to executute",
         dest="task",
@@ -60,8 +60,10 @@ if __name__ == "__main__":
     similarity = WebSimilarity(wordlist=args.wordlist)
     if args.task == 3:
         results = similarity.construct_result_table(args.words)
-    elif args.task == 4:
+    elif args.task == 5:
         results = similarity.sim_snippet1(*args.words)
+    elif args.task == 6:
+        result = similarity.execute_sim_snippet2()
 
     with open(f"results-task-{str(args.task)}.html", "w") as fd:
         fd.write(results.to_html())

@@ -323,7 +323,8 @@ class WebSimilarity:
         if len(args) > 0:
             wordlist = list(combinations(args, 2))
         else:
-            wordlist = self.wordlist
+            # remove types from the list as we do not need them
+            wordlist = [(x, y) for x, y, _ in self.wordlist]
 
         similarities = pd.DataFrame()
         for word1, word2 in wordlist:
@@ -343,9 +344,9 @@ class WebSimilarity:
             stem_word2 = [self.stemmer.stem(x) for x in snippet2_tokens]
 
             try:
-                similarity = len(set(stem_word1).intersection(set(stem_word2))) / len(
-                    stem_word1
-                ) + len(stem_word1)
+                similarity = len(set(stem_word1).intersection(set(stem_word2))) / (
+                    len(stem_word1) + len(stem_word1)
+                )
             except ZeroDivisionError:
                 logger.warning("Length of all words in snippets is 0")
                 continue
@@ -363,8 +364,9 @@ class WebSimilarity:
                     "LCH similarity",
                     "Path similarity",
                 ],
+                name=f"{word1} and {word2}",
             )
-            similarities = pd.concat([similarities, frame])
+            similarities = pd.concat([similarities, frame], axis=1)
 
         logger.info("Resulting similarities %s", similarities)
         return similarities
@@ -409,9 +411,7 @@ class WebSimilarity:
         logger.info("Task 6 results are %s", frame)
         return frame
 
-    def execute_sim_snippet2(
-        self, wordlist: List[Tuple[str, str, int]]
-    ) -> pd.DataFrame:
+    def execute_sim_snippet2(self) -> pd.DataFrame:
         """
         Implementation of Task 6.
         """
