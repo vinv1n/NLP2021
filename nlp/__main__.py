@@ -46,6 +46,12 @@ if __name__ == "__main__":
         help="Select task to executute",
         dest="task",
     )
+    parser.add_argument(
+        "--data",
+        type=str,
+        help="Path to the annotated data",
+        dest="data",
+    )
     args = parser.parse_args()
 
     if args.verbose:
@@ -58,12 +64,23 @@ if __name__ == "__main__":
         sys.exit(1)
 
     similarity = WebSimilarity(wordlist=args.wordlist)
+
+    results = None
     if args.task == 3:
         results = similarity.construct_result_table(args.words)
     elif args.task == 5:
         results = similarity.sim_snippet1(*args.words)
     elif args.task == 6:
-        result = similarity.execute_sim_snippet2()
+        results = similarity.execute_sim_snippet2()
+    elif args.task == 7:
+        results = similarity.compare_tasks()
+    elif args.task == 8:
+        if not args.data:
+            logger.critical("Please define data path with --data argument")
+            sys.exit(1)
 
-    with open(f"results-task-{str(args.task)}.html", "w") as fd:
-        fd.write(results.to_html())
+        similarity.compute_correlation_with_annotated_data(args.data)
+
+    if results is not None and not results.empty:
+        with open(f"results-task-{str(args.task)}.html", "w") as fd:
+            fd.write(results.to_html())

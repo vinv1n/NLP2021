@@ -9,11 +9,12 @@ import pandas as pd
 import csv
 import random
 import time
+import string
 
 from fuzzywuzzy import fuzz
 from datetime import timedelta
 from nltk.tokenize import word_tokenize
-from nltk.stem.snowball import SnowballStemmer
+from nltk.stem.porter import PorterStemmer
 from queue import SimpleQueue
 from queue import Empty
 from pathlib import Path
@@ -84,9 +85,7 @@ class WebSimilarity:
         self._stopwords = None
         self._punkt = None
 
-        # we assume that we use english and we do not care
-        # about stopwords
-        self.stemmer = SnowballStemmer(language="english", ignore_stopwords=True)
+        self.stemmer = PorterStemmer()
 
         if wordlist:
             self.wordlist = self._load_wordlist(Path(wordlist))
@@ -222,7 +221,9 @@ class WebSimilarity:
         url_parts.insert(len(url_parts) - 1, f"key={GOOGLE_API_KEY}")
         return "&".join(url_parts)
 
-    def fetch_search_snippets(self, word: str, limit: int = -1) -> List[str]:
+    def fetch_search_snippets(
+        self, word: str, limit: int = -1, clean: bool = False
+    ) -> List[str]:
         """
         Task 4. implementation, relies on the previous fetch search result from custom
         search api implementation
@@ -300,7 +301,15 @@ class WebSimilarity:
                     continue
 
                 counter += 1
-                snippets.append(snippet)
+                if clean:
+                    tokens = [
+                        self.stemmer.stem(x)
+                        for x in word_tokenize(snippet.lower())
+                        if all((x not in string.punctuation, x.isalpha()))
+                    ]
+                    snippets.append(" ".join(tokens))
+                else:
+                    snippets.append(snippet)
 
         return snippets
 
@@ -335,13 +344,25 @@ class WebSimilarity:
                 continue
 
             # get tokens for snippets
-            snippet1_tokens = self._get_all_words([word_tokenize(x) for x in snippets1])
-            snippet2_tokens = self._get_all_words([word_tokenize(x) for x in snippets2])
+            snippet1_tokens = self._get_all_words(
+                [word_tokenize(x.lower()) for x in snippets1]
+            )
+            snippet2_tokens = self._get_all_words(
+                [word_tokenize(x.lower()) for x in snippets2]
+            )
 
             # and then stemming, note that noise removal is not really needed
             # as these are quite clean samples anyway
-            stem_word1 = [self.stemmer.stem(x) for x in snippet1_tokens]
-            stem_word2 = [self.stemmer.stem(x) for x in snippet2_tokens]
+            stem_word1 = [
+                self.stemmer.stem(x)
+                for x in snippet1_tokens
+                if all((x not in string.punctuation, x.isalpha()))
+            ]
+            stem_word2 = [
+                self.stemmer.stem(x)
+                for x in snippet2_tokens
+                if all((x not in string.punctuation, x.isalpha()))
+            ]
 
             try:
                 similarity = len(set(stem_word1).intersection(set(stem_word2))) / (
@@ -372,7 +393,7 @@ class WebSimilarity:
         return similarities
 
     def sim_snippet2(
-        self, wordlist: List[Tuple[str, str, int]], limit: int = 0
+        self, wordlist: List[Tuple[str, str, int]], limit: int = 0, clean: bool = False
     ) -> pd.DataFrame:
         """
         Actual implementation of task 6. as this is needed again on task 7.
@@ -382,17 +403,17 @@ class WebSimilarity:
         def compute_similarity_of_words(word1, word2):
             return fuzz.token_set_ratio(word1, word2)
 
-        # take max 3 pairs from wordlist
-        if limit > 0:
-            wordlist = wordlist[:limit]
-
         results = []
         for word1, word2, _ in wordlist:
-            snippets1 = self.fetch_search_snippets(word1, limit=10)
-            snippets2 = self.fetch_search_snippets(word2, limit=10)
+            snippets1 = self.fetch_search_snippets(word1, limit=limit, clean=clean)
+            snippets2 = self.fetch_search_snippets(word2, limit=limit, clean=clean)
 
             # we assume that every snippet in a set is unique
-            shared = len(set(snippets1).intersection(set(snippets2)))
+            shared = len(
+                set([x.lower() for x in snippets1]).intersection(
+                    set([x.lower() for x in snippets2])
+                )
+            )
 
             doc1 = "".join(snippets1)
             doc2 = "".join(snippets2)
@@ -405,10 +426,11 @@ class WebSimilarity:
                 shared,
                 overlapping,
             )
-            results.append((shared, overlapping))
+            results.append((f"{word1} - {word2}", shared, overlapping))
 
-        frame = pd.DataFrame(results)
-        logger.info("Task 6 results are %s", frame)
+        frame = pd.DataFrame(
+            results, columns=["words", "shared snippets", "overlapping token ratio"]
+        )
         return frame
 
     def execute_sim_snippet2(self) -> pd.DataFrame:
@@ -419,20 +441,20 @@ class WebSimilarity:
         words = list(filter(lambda x: x if x[2] == 2 else None, self.wordlist))
 
         # take max 3 pairs from wordlist
-        frame = self.sim_snippet2(words[:3], limit=10)
+        frame = self.sim_snippet2(words[:3], limit=10, clean=True)
         logger.info("Task 6 results are %s", frame)
         return frame
 
     def compare_tasks(self, *args) -> pd.DataFrame:
         """
-        Task 7
+        Task 7 implementation
         """
         if len(args) > 0:
             wordlist = list(combinations(args, 2))
         else:
             wordlist = self.wordlist
 
-        frame = self.sim_snippet2(wordlist)
+        frame = self.sim_snippet2(wordlist, limit=5, clean=True)
         logger.info("Result for task 7 is %s", frame)
         return frame
 
@@ -605,7 +627,7 @@ class WebSimilarity:
 
         data = []
         with open(data_path, "r") as fd:
-            reader = csv.reader(csvfile, delimiter=",", quotechar="|")
+            reader = csv.reader(fd, delimiter=";", quotechar="|")
             for row in reader:
                 data.append(tuple(row))
 
@@ -617,9 +639,12 @@ class WebSimilarity:
 
         results = []
         # take 10 random samples from the data helps to reduce rate limit
-        for word1, word2, similarity in random.choices(data, k=10):
+        for word1, word2, similarity in data:
+            logger.info(
+                "Fetching WebJaccard similarity for words %s and %s", word1, word2
+            )
             web_jaccard = self.compute_web_jaccard_similarity(word1, word2)
-            results.append((web_jaccard, similarity))
+            results.append((float(web_jaccard), float(similarity)))
 
         if not results:
             logger.warning("Similarity results are empty, this should not happen")
@@ -631,7 +656,6 @@ class WebSimilarity:
 
         correlation = web_jaccard_similarity.corr(human_determined_similarity)
         logger.info(
-            "Correlation between human determined similarities and web jaccard similaries is %s",
+            "Correlation between human determined similarities and WebJaccard similaries is %s",
             correlation,
         )
-        return correlation
