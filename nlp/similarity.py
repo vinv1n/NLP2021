@@ -586,6 +586,37 @@ class WebSimilarity:
         )
         return wu_palmer, lch_similarity, path_similarity
 
+    def get_correlation_between_words(self):
+        """
+        Implementation of task 2
+        """
+        results = defaultdict(list)
+        for word1, word2, label in self.wordlist:
+            if label == 1:
+                name = "synonym"
+            elif label == 2:
+                name = "antonym"
+            else:
+                name = "hyponym"
+
+            logger.info(
+                "Computing WebJaccard similarity for words %s %s classification %s",
+                word1,
+                word2,
+                name,
+            )
+            similarity = self.compute_web_jaccard_similarity(word1, word2)
+            results[name].append((similarity, f"{word1} - {word2}"))
+
+        for wordtype, similarities in results.items():
+            entry = pd.Series(
+                [x[0] for x in similarities], index=[x[1] for x in similarities]
+            )
+            logger.info("Similarities for word type %s are %s", wordtype, entry)
+            logger.info(
+                "Mean for similarities is %s and std %s", entry.mean(), entry.std()
+            )
+
     def construct_result_table(self, words: List[str]):
         """
         Construct result table from provided wordlist, task 3. wrapper

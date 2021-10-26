@@ -66,7 +66,9 @@ if __name__ == "__main__":
     similarity = WebSimilarity(wordlist=args.wordlist)
 
     results = None
-    if args.task == 3:
+    if args.task == 2:
+        results = similarity.get_correlation_between_words()
+    elif args.task == 3:
         results = similarity.construct_result_table(args.words)
     elif args.task == 5:
         results = similarity.sim_snippet1(*args.words)
