@@ -608,6 +608,7 @@ class WebSimilarity:
             similarity = self.compute_web_jaccard_similarity(word1, word2)
             results[name].append((similarity, f"{word1} - {word2}"))
 
+        results = pd.DataFrame()
         for wordtype, similarities in results.items():
             entry = pd.Series(
                 [x[0] for x in similarities], index=[x[1] for x in similarities]
@@ -616,13 +617,20 @@ class WebSimilarity:
             logger.info(
                 "Mean for similarities is %s and std %s", entry.mean(), entry.std()
             )
+            results = pd.concat([results, entry], axis=1)
+        return results
 
-    def construct_result_table(self, words: List[str]):
+    def construct_result_table(self, words: List[str] = None):
         """
         Construct result table from provided wordlist, task 3. wrapper
         """
+        if words:
+            wordlist = [x for x in combinations(words, r=2)]
+        else:
+            wordlist = [(x, y) for x, y, _ in self.wordlist]
+
         table = pd.DataFrame()
-        for word1, word2, relation in self.wordlist:
+        for word1, word2 in wordlist:
             web_similarity = self.compute_web_jaccard_similarity(word1, word2)
             wu_palmer, path_length, lch = self.compute_semantic_similarity(word1, word2)
 
@@ -644,12 +652,16 @@ class WebSimilarity:
         return table
 
     def compute_correlation_with_annotated_data(
-        self, annotated_data_path: str
+        self, annotated_data_path: str = ""
     ) -> float:
         """
         Implementation of task 8.
         """
-        data_path = Path(annotated_data_path)
+        if annotated_data_path:
+            data_path = Path(annotated_data_path)
+        else:
+            data_path = Path(Path(__file__).parent.parent, "samples", "mc28.csv")
+
         if not data_path.exists():
             logger.critical(
                 "Path %s to the annotated data csv does not exist", data_path.as_posix()
@@ -690,3 +702,4 @@ class WebSimilarity:
             "Correlation between human determined similarities and WebJaccard similaries is %s",
             correlation,
         )
+        return pd.Series(correlation, index=["Correlation"])
