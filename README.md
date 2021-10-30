@@ -1,5 +1,7 @@
 # NLP2021
 
+Currently only tested in *NIX environment. Most likely does not work in a Windows ecosystem.
+
 ## Requirements
 
 1. python3
@@ -21,4 +23,10 @@ And you are done
 
 ## Running
 
-Active your virtualenv if not active and run `python -m nlp word1 word2`
+Active your virtualenv if not active and run `python -m nlp --wordlist <PATH-TO-WORDLIST> --task <TASK-NUMBER>`
+
+All the possible command-line options are availabel with `python -m nlp --help`
+
+## Results
+
+Results are either dumped into HTML file or logged into stdout or both. All results do not have multiple results and those are not dumped into a file
