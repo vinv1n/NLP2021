@@ -456,7 +456,7 @@ class WebSimilarity:
 
         frame = self.sim_snippet2(wordlist, limit=5, clean=True)
         logger.info("Result for task 7 is %s", frame)
-        return frame
+        return frame.T
 
     def _compute_web_jaccard_similarity_by_search_results(
         self, word1: str, word2: str
@@ -608,17 +608,21 @@ class WebSimilarity:
             similarity = self.compute_web_jaccard_similarity(word1, word2)
             results[name].append((similarity, f"{word1} - {word2}"))
 
-        results = pd.DataFrame()
+        frame = pd.DataFrame()
         for wordtype, similarities in results.items():
             entry = pd.Series(
-                [x[0] for x in similarities], index=[x[1] for x in similarities]
+                [x[0] for x in similarities],
+                name=wordtype,
+                index=[x[1] for x in similarities],
             )
             logger.info("Similarities for word type %s are %s", wordtype, entry)
             logger.info(
                 "Mean for similarities is %s and std %s", entry.mean(), entry.std()
             )
-            results = pd.concat([results, entry], axis=1)
-        return results
+            frame = pd.concat([frame, entry], axis=1)
+
+        logger.info("Results for task 2 are %s", frame)
+        return frame.T
 
     def construct_result_table(self, words: List[str] = None):
         """
