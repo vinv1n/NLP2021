@@ -28,6 +28,15 @@ Active your virtualenv if not active and run `python -m nlp --wordlist <PATH-TO-
 
 All the possible command-line options are availabel with `python -m nlp --help`
 
+### Graphical user interface
+
+To run the GUI following commands are required
+
+1. Create virtualenv `python3 -m venv ve`
+2. Activate env `source ve/bin/activate`
+3. Install dependencies `pip install -r requirements.txt`
+4. Run `./app.py` or `python app.py`
+
 ## Results
 
 Results are either dumped into HTML file or logged into stdout or both. All results do not have multiple results and those are not dumped into a file
