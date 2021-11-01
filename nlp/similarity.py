@@ -10,6 +10,7 @@ import csv
 import random
 import time
 import string
+import pprint
 
 from fuzzywuzzy import fuzz
 from datetime import timedelta
@@ -221,6 +222,10 @@ class WebSimilarity:
         url_parts.insert(len(url_parts) - 1, f"key={GOOGLE_API_KEY}")
         return "&".join(url_parts)
 
+    def run_task4(self, word: str) -> None:
+        result = self.fetch_search_snippets(word)
+        logger.info("Result of task 4 is %s", pprint.pformat(result))
+
     def fetch_search_snippets(
         self, word: str, limit: int = -1, clean: bool = False
     ) -> List[str]:
@@ -330,7 +335,7 @@ class WebSimilarity:
         """
         self._load_wordnet
         if len(args) > 0:
-            wordlist = list(combinations(args, 2))
+            wordlist = args
         else:
             # remove types from the list as we do not need them
             wordlist = [(x, y) for x, y, _ in self.wordlist]
@@ -568,7 +573,7 @@ class WebSimilarity:
             )
             return 0.0, 0.0, 0.0
 
-        logger.debug(
+        logger.info(
             "Selected wordnet entries word1: %s word2: %s", word1_entry, word2_entry
         )
 

@@ -41,7 +41,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--task",
-        choices=[2, 3, 5, 6, 7, 8],
+        choices=[2, 3, 4, 5, 6, 7, 8],
         type=int,
         help="Select task to executute",
         dest="task",
@@ -70,6 +70,8 @@ if __name__ == "__main__":
         results = similarity.get_correlation_between_words()
     elif args.task == 3:
         results = similarity.construct_result_table(args.words)
+    elif args.task == 4:
+        similarity.run_task4(*args.words)
     elif args.task == 5:
         results = similarity.sim_snippet1(*args.words)
     elif args.task == 6:
