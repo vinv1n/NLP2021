@@ -7,6 +7,7 @@ Currently only tested in *NIX environment. Most likely does not work in a Window
 1. python3
 2. Defined instance of google custom search api, please refer to [this](https://stackoverflow.com/questions/4082966/what-are-the-alternatives-now-that-the-google-web-search-api-has-been-deprecated)
 3. Export Google API keys to environment variable `export GOOGLE_API_KEY=<YOUR-GOOGLE-API-KEY>` and google custom search instance id to `export GOOGLE_CX_ID=<YOUR-CX-INSTANCE-ID>`
+4. tk library is needed to use GUI application. To install this use `sudo pacman -S tk` on Arch based distributions and `python3-tk`? on debian based distributions. (Not sure about debian package as I don't have debian available atm.)
 
 ## Installing
 
